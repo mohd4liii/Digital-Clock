@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+
+  <!-- MOBILE FIX 1: viewport tag
+       width=device-width  → use the actual screen width, not a fake 980px desktop width
+       initial-scale=1.0   → don't zoom out on load
+       viewport-fit=cover  → extend into iPhone notch/safe areas -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+
+  <title>Digital Clock</title>
+  <style>
+    /* ── RESET ── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      /* MOBILE FIX 2: prevent tap highlight flash on buttons/links */
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :root {
+      --cyan:       #00e5ff;
+      --cyan-dim:   #00b8d4;
+      --bg:         #0a0c10;
+      --surface:    #111418;
+      --surface2:   #181c22;
+      --border:     rgba(0, 229, 255, 0.15);
+      --text:       #e2e8f0;
+      --text-muted: #6b7280;
+      --danger:     #f87171;
+      --mono:       'Courier New', Courier, monospace;
+    }
+
+    /* ── PAGE ── */
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      min-height: 100dvh; /* MOBILE FIX 3: dvh accounts for the browser address bar on phones.
+                             Regular vh includes the hidden bar area, cutting off content. */
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      /* MOBILE FIX 4: env() pads inside iPhone notch & home-bar safe areas */
+      padding: max(16px, env(safe-area-inset-top))
+               max(12px, env(safe-area-inset-right))
+               max(16px, env(safe-area-inset-bottom))
+               max(12px, env(safe-area-inset-left));
+    }
+
+    /* ── APP SHELL ── */
+    .app {
+      width: 100%;
+      max-width: 600px;
+      background: var(--bg);
+      border: 0.5px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      text-align: center;
+      padding: 18px 20px 0;
+      letter-spacing: 0.2em;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── TABS ──
+       MOBILE FIX 5: min-height 48px = Apple/Google minimum recommended touch target.
+       Anything smaller is too hard to tap with a finger accurately. */
+    .tabs {
+      display: flex;
+      border-bottom: 0.5px solid var(--border);
+      margin-top: 10px;
+    }
+
+    .tab {
+      flex: 1;
+      min-height: 48px;
+      padding: 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-align: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+      font-family: var(--mono);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* MOBILE FIX 6: prevents text being accidentally selected on fast taps */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+    .tab:hover:not(.active) { color: #94a3b8; }
+
+    /* ── PANELS ── */
+    .panel { display: none; padding: 20px 16px; }
+    .panel.active { display: block; }
+
+    /* ══════════════════════════
+       CLOCK PANEL
+    ══════════════════════════ */
+    .main-time {
+      /* clamp(min, preferred, max)
+         320px phone → 14vw = 44px | 390px iPhone → 54px | 768px tablet → capped at 88px */
+      font-size: clamp(44px, 14vw, 88px);
+      font-weight: 700;
+      letter-spacing: -2px;
+      color: var(--cyan);
+      text-align: center;
+      line-height: 1;
+      text-shadow: 0 0 40px rgba(0,229,255,0.25);
+    }
+
+    .main-ampm {
+      text-align: center;
+      font-size: 13px;
+      color: var(--cyan-dim);
+      margin-top: 4px;
+      letter-spacing: 0.15em;
+    }
+
+    .main-date {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 8px 0 16px;
+      letter-spacing: 0.08em;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .info-card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .info-label {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+
+    .info-val {
+      font-size: 13px;
+      color: #cbd5e1;
+      /* MOBILE FIX 7: break long unix timestamps on very small screens */
+      word-break: break-all;
+    }
+
+    /* ══════════════════════════
+       WORLD TIME PANEL
+    ══════════════════════════ */
+    .tz-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+    }
+
+    .tz-card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .tz-city { font-size: 9px; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 5px; }
+    .tz-time { font-size: clamp(16px, 4vw, 22px); font-weight: 600; color: var(--cyan); }
+    .tz-date { font-size: 10px; color: #4b5563; margin-top: 2px; }
+
+    /* ══════════════════════════
+       STOPWATCH PANEL
+    ══════════════════════════ */
+    .sw-display {
+      font-size: clamp(38px, 11vw, 72px);
+      font-weight: 700;
+      text-align: center;
+      color: var(--cyan);
+      letter-spacing: -1px;
+      margin: 4px 0 16px;
+      text-shadow: 0 0 30px rgba(0,229,255,0.2);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    /* MOBILE FIX 8: min-height 44px ensures buttons are always large enough to tap.
+       :active gives instant visual press feedback — hover doesn't fire on touchscreens. */
+    .btn {
+      min-height: 44px;
+      padding: 0 20px;
+      border-radius: 8px;
+      border: 0.5px solid var(--border);
+      background: var(--surface);
+      color: #cbd5e1;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: var(--mono);
+      letter-spacing: 0.06em;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      user-select: none;
+      -webkit-user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn:hover   { background: var(--surface2); color: var(--cyan); border-color: rgba(0,229,255,0.4); }
+    .btn.primary { border-color: rgba(0,229,255,0.5); color: var(--cyan); }
+    .btn.danger  { border-color: rgba(239,68,68,0.35); color: var(--danger); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* MOBILE FIX 9: :active is the touch equivalent of :hover
+       scale(0.96) gives a satisfying "press" feel on phones */
+    .btn:active:not(:disabled) {
+      transform: scale(0.96);
+      background: var(--surface2);
+    }
+
+    .laps-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      padding: 0 0 6px;
+      border-bottom: 0.5px solid var(--border);
+      margin-bottom: 4px;
+    }
+
+    .laps-list {
+      max-height: 160px;
+      overflow-y: auto;
+      /* MOBILE FIX 10: momentum scrolling on iOS.
+         Without this, scrolling feels sticky and unnatural on iPhones. */
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+
+    .lap-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 0.5px solid rgba(255,255,255,0.04);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .lap-row .lap-split { color: #94a3b8; }
+    .lap-row .lap-total { color: #64748b; }
+
+    /* ══════════════════════════
+       COUNTDOWN PANEL
+    ══════════════════════════ */
+    .cd-setup {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      align-items: flex-end;
+      margin-bottom: 14px;
+    }
+
+    .cd-field {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .cd-field label {
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    /* MOBILE FIX 11: inputmode="numeric" (set in HTML) shows a clean number pad
+       on phones instead of the full keyboard. pattern="[0-9]*" enforces this on iOS. */
+    .cd-input {
+      width: clamp(56px, 18vw, 72px);  /* shrinks gracefully on small phones */
+      min-height: 44px;
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 4px;
+      color: var(--cyan);
+      font-size: clamp(15px, 4vw, 18px);
+      text-align: center;
+      font-family: var(--mono);
+      outline: none;
+      transition: border-color 0.2s;
+      -moz-appearance: textfield; /* hide spin arrows in Firefox */
+    }
+
+    .cd-input::-webkit-outer-spin-button,
+    .cd-input::-webkit-inner-spin-button { -webkit-appearance: none; } /* hide in Chrome/Safari */
+    .cd-input:focus { border-color: rgba(0,229,255,0.5); }
+
+    .cd-sep { color: var(--text-muted); font-size: 20px; padding-bottom: 8px; }
+
+    .cd-display {
+      font-size: clamp(38px, 11vw, 72px);
+      font-weight: 700;
+      text-align: center;
+      color: var(--cyan);
+      letter-spacing: -1px;
+      margin: 6px 0 14px;
+      text-shadow: 0 0 30px rgba(0,229,255,0.2);
+      transition: color 0.3s;
+    }
+
+    .cd-display.done {
+      color: var(--danger);
+      text-shadow: 0 0 30px rgba(248,113,113,0.3);
+    }
+
+    .cd-progress-bg {
+      height: 3px;
+      background: var(--surface2);
+      border-radius: 2px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .cd-progress-fill {
+      height: 100%;
+      background: var(--cyan);
+      border-radius: 2px;
+      transition: width 0.8s linear;
+    }
+
+    /* ══════════════════════════
+       MOBILE FIX 12: LANDSCAPE MODE
+       When rotated sideways, the screen is very short (~360px tall).
+       We shrink vertical spacing so everything still fits without scrolling.
+    ══════════════════════════ */
+    @media (max-height: 500px) and (orientation: landscape) {
+      body { align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+      .panel { padding: 10px 16px; }
+      .main-time, .sw-display, .cd-display { font-size: clamp(28px, 8vh, 48px); margin-bottom: 8px; }
+      .info-grid { grid-template-columns: repeat(4, 1fr); }
+      .laps-list { max-height: 90px; }
+      .header { padding-top: 10px; }
+    }
+
+    /* ══════════════════════════
+       MOBILE FIX 13: VERY SMALL PHONES (< 360px, older Androids)
+       Tighten padding and font sizes slightly.
+    ══════════════════════════ */
+    @media (max-width: 360px) {
+      .tab  { font-size: 9px; letter-spacing: 0.03em; }
+      .panel { padding: 14px 10px; }
+      .btn  { padding: 0 10px; font-size: 12px; }
+    }
+
+    /* ══════════════════════════
+       TABLET (>= 600px wide)
+       Give the layout more breathing room on larger screens.
+    ══════════════════════════ */
+    @media (min-width: 600px) {
+      body  { align-items: center; padding: 24px; }
+      .panel { padding: 28px 24px; }
+      .tab  { font-size: 12px; }
+      .tz-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <p class="header">DIGITAL CLOCK</p>
+
+  <!-- TAB BAR — min-height 48px from CSS makes each tab easy to tap -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('clock')">CLOCK</button>
+    <button class="tab" onclick="switchTab('world')">WORLD</button>
+    <button class="tab" onclick="switchTab('stopwatch')">STOPWATCH</button>
+    <button class="tab" onclick="switchTab('countdown')">TIMER</button>
+  </div>
+
+  <!-- PANEL 1: LOCAL CLOCK -->
+  <div id="tab-clock" class="panel active">
+    <div class="main-time" id="main-time">00:00:00</div>
+    <div class="main-ampm" id="main-ampm">AM</div>
+    <div class="main-date" id="main-date">Loading...</div>
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-label">DAY OF WEEK</div>
+        <div class="info-val" id="info-dow">—</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">WEEK NUMBER</div>
+        <div class="info-val" id="info-week">—</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">DAY OF YEAR</div>
+        <div class="info-val" id="info-doy">—</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">UNIX TIMESTAMP</div>
+        <div class="info-val" id="info-unix">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL 2: WORLD TIME -->
+  <div id="tab-world" class="panel">
+    <div class="tz-grid" id="tz-grid"></div>
+  </div>
+
+  <!-- PANEL 3: STOPWATCH -->
+  <div id="tab-stopwatch" class="panel">
+    <div class="sw-display" id="sw-display">00:00.000</div>
+    <div class="btn-row">
+      <button class="btn primary" id="sw-btn" onclick="swToggle()">START</button>
+      <button class="btn" id="lap-btn" onclick="swLap()" disabled>LAP</button>
+      <button class="btn danger" onclick="swReset()">RESET</button>
+    </div>
+    <div class="laps-header">
+      <span>LAP</span><span>SPLIT</span><span>TOTAL</span>
+    </div>
+    <div class="laps-list" id="laps-list"></div>
+  </div>
+
+  <!-- PANEL 4: COUNTDOWN TIMER
+       inputmode="numeric" → shows number pad on phones (not full keyboard)
+       pattern="[0-9]*"   → enforces numeric-only on iOS Safari -->
+  <div id="tab-countdown" class="panel">
+    <div class="cd-setup">
+      <div class="cd-field">
+        <label for="cd-h">HRS</label>
+        <input type="number" class="cd-input" id="cd-h"
+               value="0" min="0" max="99"
+               inputmode="numeric" pattern="[0-9]*">
+      </div>
+      <span class="cd-sep">:</span>
+      <div class="cd-field">
+        <label for="cd-m">MIN</label>
+        <input type="number" class="cd-input" id="cd-m"
+               value="5" min="0" max="59"
+               inputmode="numeric" pattern="[0-9]*">
+      </div>
+      <span class="cd-sep">:</span>
+      <div class="cd-field">
+        <label for="cd-s">SEC</label>
+        <input type="number" class="cd-input" id="cd-s"
+               value="0" min="0" max="59"
+               inputmode="numeric" pattern="[0-9]*">
+      </div>
+    </div>
+    <div class="cd-display" id="cd-display">00:05:00</div>
+    <div class="cd-progress-bg">
+      <div class="cd-progress-fill" id="cd-bar" style="width:100%;"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" id="cd-btn" onclick="cdToggle()">START</button>
+      <button class="btn danger" onclick="cdReset()">RESET</button>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+  /* ── HELPERS ── */
+  function pad(n, len = 2) { return String(n).padStart(len, '0'); }
+
+  const DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+  function getWeekNumber(d) {
+    const jan1 = new Date(Date.UTC(d.getFullYear(), 0, 1));
+    return Math.ceil(((d - jan1) / 86400000 + jan1.getUTCDay() + 1) / 7);
+  }
+
+  function getDayOfYear(d) {
+    return Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000);
+  }
+
+  /* ── TAB SWITCHING ── */
+  const TAB_NAMES = ['clock', 'world', 'stopwatch', 'countdown'];
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((btn, i) =>
+      btn.classList.toggle('active', TAB_NAMES[i] === name));
+    document.querySelectorAll('.panel').forEach(p =>
+      p.classList.toggle('active', p.id === `tab-${name}`));
+  }
+
+  /* ── PANEL 1: LOCAL CLOCK ── */
+  function updateClock() {
+    const now  = new Date();
+    const h24  = now.getHours();
+    const h12  = h24 % 12 || 12;
+    const m    = now.getMinutes();
+    const s    = now.getSeconds();
+
+    document.getElementById('main-time').textContent = `${pad(h12)}:${pad(m)}:${pad(s)}`;
+    document.getElementById('main-ampm').textContent = h24 < 12 ? 'AM' : 'PM';
+    document.getElementById('main-date').textContent =
+      `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    document.getElementById('info-dow').textContent  = DAYS[now.getDay()];
+    document.getElementById('info-week').textContent = `Week ${getWeekNumber(now)}`;
+    document.getElementById('info-doy').textContent  = `Day ${getDayOfYear(now)} of 365`;
+    document.getElementById('info-unix').textContent = Math.floor(Date.now() / 1000);
+  }
+
+  /* ── PANEL 2: WORLD TIME ── */
+  const TIMEZONES = [
+    { city: 'New York',  tz: 'America/New_York'  },
+    { city: 'London',    tz: 'Europe/London'      },
+    { city: 'Paris',     tz: 'Europe/Paris'       },
+    { city: 'Dubai',     tz: 'Asia/Dubai'         },
+    { city: 'Mumbai',    tz: 'Asia/Kolkata'       },
+    { city: 'Singapore', tz: 'Asia/Singapore'     },
+    { city: 'Tokyo',     tz: 'Asia/Tokyo'         },
+    { city: 'Sydney',    tz: 'Australia/Sydney'   },
+  ];
+
+  function buildWorldGrid() {
+    const grid = document.getElementById('tz-grid');
+    TIMEZONES.forEach(z => {
+      const id = z.city.replace(/\s/g, '');
+      const card = document.createElement('div');
+      card.className = 'tz-card';
+      card.innerHTML = `<div class="tz-city">${z.city.toUpperCase()}</div>
+        <div class="tz-time" id="tz-t-${id}">--:--</div>
+        <div class="tz-date" id="tz-d-${id}"></div>`;
+      grid.appendChild(card);
+    });
+  }
+
+  function updateWorld() {
+    const now = new Date();
+    TIMEZONES.forEach(z => {
+      const id = z.city.replace(/\s/g, '');
+      document.getElementById(`tz-t-${id}`).textContent =
+        now.toLocaleTimeString('en-GB', { timeZone: z.tz, hour12: false,
+          hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      document.getElementById(`tz-d-${id}`).textContent =
+        now.toLocaleDateString('en-US', { timeZone: z.tz,
+          weekday: 'short', month: 'short', day: 'numeric' });
+    });
+  }
+
+  /* ── PANEL 3: STOPWATCH ── */
+  let swRunning = false, swStart = 0, swElapsed = 0, swAnimId = null, swLaps = [];
+
+  function formatSW(ms) {
+    return `${pad(Math.floor(ms/60000))}:${pad(Math.floor((ms%60000)/1000))}.${pad(ms%1000,3)}`;
+  }
+
+  function swTick() {
+    document.getElementById('sw-display').textContent =
+      formatSW(swElapsed + (Date.now() - swStart));
+    swAnimId = requestAnimationFrame(swTick);
+  }
+
+  function swToggle() {
+    if (!swRunning) {
+      swStart = Date.now(); swRunning = true;
+      swAnimId = requestAnimationFrame(swTick);
+      document.getElementById('sw-btn').textContent = 'PAUSE';
+      document.getElementById('lap-btn').disabled   = false;
+    } else {
+      swElapsed += Date.now() - swStart; swRunning = false;
+      cancelAnimationFrame(swAnimId);
+      document.getElementById('sw-btn').textContent = 'RESUME';
+    }
+  }
+
+  function swLap() {
+    const total = swElapsed + (Date.now() - swStart);
+    swLaps.push(total);
+    const split = total - (swLaps.length > 1 ? swLaps[swLaps.length - 2] : 0);
+    const row = document.createElement('div');
+    row.className = 'lap-row';
+    row.innerHTML = `<span>#${swLaps.length}</span>
+      <span class="lap-split">${formatSW(split)}</span>
+      <span class="lap-total">${formatSW(total)}</span>`;
+    document.getElementById('laps-list').prepend(row);
+  }
+
+  function swReset() {
+    cancelAnimationFrame(swAnimId);
+    swRunning = false; swElapsed = 0; swLaps = [];
+    document.getElementById('sw-display').textContent = '00:00.000';
+    document.getElementById('sw-btn').textContent     = 'START';
+    document.getElementById('lap-btn').disabled       = true;
+    document.getElementById('laps-list').innerHTML    = '';
+  }
+
+  /* ── PANEL 4: COUNTDOWN TIMER ── */
+  let cdRunning = false, cdInterval = null, cdTotal = 0, cdRemaining = 0;
+
+  function cdSecs() {
+    return (parseInt(document.getElementById('cd-h').value)||0) * 3600
+         + (parseInt(document.getElementById('cd-m').value)||0) * 60
+         + (parseInt(document.getElementById('cd-s').value)||0);
+  }
+
+  function fmtCD(t) {
+    return `${pad(Math.floor(t/3600))}:${pad(Math.floor((t%3600)/60))}:${pad(t%60)}`;
+  }
+
+  function cdTick() {
+    if (cdRemaining <= 0) {
+      clearInterval(cdInterval); cdRunning = false;
+      const d = document.getElementById('cd-display');
+      d.textContent = 'DONE!'; d.classList.add('done');
+      document.getElementById('cd-bar').style.width = '0%';
+      document.getElementById('cd-btn').textContent = 'START';
+      return;
+    }
+    cdRemaining--;
+    document.getElementById('cd-display').textContent = fmtCD(cdRemaining);
+    document.getElementById('cd-bar').style.width =
+      `${cdTotal > 0 ? (cdRemaining / cdTotal) * 100 : 0}%`;
+  }
+
+  function cdToggle() {
+    if (!cdRunning) {
+      if (cdRemaining === 0) { cdTotal = cdSecs(); cdRemaining = cdTotal; }
+      if (cdTotal === 0) return;
+      document.getElementById('cd-display').classList.remove('done');
+      cdRunning = true;
+      cdInterval = setInterval(cdTick, 1000);
+      document.getElementById('cd-btn').textContent = 'PAUSE';
+    } else {
+      clearInterval(cdInterval); cdRunning = false;
+      document.getElementById('cd-btn').textContent = 'RESUME';
+    }
+  }
+
+  function cdReset() {
+    clearInterval(cdInterval); cdRunning = false; cdRemaining = 0; cdTotal = 0;
+    document.getElementById('cd-display').textContent = fmtCD(cdSecs());
+    document.getElementById('cd-display').classList.remove('done');
+    document.getElementById('cd-bar').style.width = '100%';
+    document.getElementById('cd-btn').textContent = 'START';
+  }
+
+  ['cd-h','cd-m','cd-s'].forEach(id =>
+    document.getElementById(id).addEventListener('input', () => {
+      if (!cdRunning && cdRemaining === 0)
+        document.getElementById('cd-display').textContent = fmtCD(cdSecs());
+    })
+  );
+
+  /* ── INIT ── */
+  buildWorldGrid();
+  updateClock();
+  updateWorld();
+  setInterval(() => { updateClock(); updateWorld(); }, 1000);
+</script>
+</body>
+</html>
